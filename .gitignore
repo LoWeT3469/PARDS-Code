@@ -1,0 +1,88 @@
+# Default ignore everything in this tree, then opt in the PARDS code we want.
+*
+
+!.gitignore
+!README.md
+
+!02-DT-CWPT/
+!02-DT-CWPT/**
+
+!2-PARDS/
+!2-PARDS/**
+
+!3-PARDS_V2/
+!3-PARDS_V2/**
+
+!4-PARDS_V3/
+!4-PARDS_V3/**
+
+# Ignore preserved old Git metadata inside the PARDS folders.
+**/.git_nested_backup
+**/.git_nested_backup/
+
+# Ignore third-party repos and unrelated code trees in 03-Code.
+01-Sickbay/
+mamba/
+mamba_waves/
+slurm_temp.sh
+
+# OS/editor noise
+**/.DS_Store
+**/Thumbs.db
+**/.ipynb_checkpoints/
+**/__pycache__/
+**/*.py[cod]
+
+# Virtual environments
+**/.venv/
+**/venv/
+**/env/
+**/conda-env/
+
+# Logs and cluster outputs
+**/*.log
+**/*.out
+**/*.err
+**/slurm-*.out
+**/ClassificationModels(*)-[0-9]*
+**/RegressionModels(*)-[0-9]*
+**/MMCls_*-[0-9]*
+**/MMReg_*-[0-9]*
+
+# Large artifacts and data exports
+**/data/
+**/Data/
+**/results/
+**/Results/
+**/outputs/
+**/artifacts/
+**/models/
+**/checkpoints/
+**/*.ckpt
+**/*.pt
+**/*.pth
+**/*.pkl
+**/*.joblib
+**/*.csv
+**/*.tsv
+**/*.xlsx
+**/*.xls
+**/*.xlsm
+**/*.mat
+
+# Keep the small DTCWPT support files needed by the bundled MATLAB code.
+!02-DT-CWPT/*.mat
+!2-PARDS/DTCWPT/dtcwpt_filters*.mat
+!3-PARDS_V2/DTCWPT/dtcwpt_filters*.mat
+!3-PARDS_V2/DTCWPT/flow*.csv
+!4-PARDS_V3/DTCWPT/dtcwpt_filters*.mat
+!4-PARDS_V3/DTCWPT/flow*.csv
+
+# Archives and medical image formats
+**/*.dcm
+**/*.nii
+**/*.nii.gz
+**/*.zip
+**/*.tar
+**/*.tar.gz
+**/*.tgz
