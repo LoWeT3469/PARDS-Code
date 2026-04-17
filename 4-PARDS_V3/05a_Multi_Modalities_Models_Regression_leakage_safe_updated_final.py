@@ -60,17 +60,39 @@ os.makedirs(OUT_DIR, exist_ok=True)
 
 N_FOLDS = 5
 
-USE_CXR_PCA = True
-CXR_PCA_FIT_DIM = 64
-CXR_PCA_USE_DIM = 32
+CXR_REDUCER_CANDIDATES = [
+    {"name": "pca", "fit_dim": 64, "latent_dim": 20},
+    {"name": "autoencoder", "latent_dim": 20, "hidden_dim": 128, "epochs": 80, "lr": 1e-3, "weight_decay": 1e-5},
+]
 
 EPOCHS = 120
 PATIENCE = 12
 BATCH_SIZE = 64
-WEIGHT_DECAY = 1e-4
 
-ALPHA = 0.7
-BETA = 0.3
+DISTILLATION_CANDIDATES = [
+    {"alpha": 0.9, "beta": 0.1},
+    {"alpha": 0.8, "beta": 0.2},
+    {"alpha": 0.7, "beta": 0.3},
+]
+
+FINAL_VAL_STRATEGY = "holdout"
+FINAL_VAL_RATIO = 0.15
+FINAL_TRAIN_SEEDS = [SEED, SEED + 17, SEED + 29]
+
+RUN_BOOTSTRAP_CI_EVAL = True
+RUN_LEARNING_CURVES = True
+RUN_CXR_REDUCER_SENSITIVITY = True
+BOOTSTRAP_B = 1000
+LEARNING_FRACTIONS = [0.2, 0.4, 0.6, 0.8, 1.0]
+LEARNING_SEEDS = [SEED]
+CXR_REDUCER_SENSITIVITY_CANDIDATES = [
+    {"name": "pca", "fit_dim": 64, "latent_dim": 16},
+    {"name": "pca", "fit_dim": 64, "latent_dim": 20},
+    {"name": "pca", "fit_dim": 64, "latent_dim": 32},
+    {"name": "autoencoder", "latent_dim": 16, "hidden_dim": 128, "epochs": 80, "lr": 1e-3, "weight_decay": 1e-5},
+    {"name": "autoencoder", "latent_dim": 20, "hidden_dim": 128, "epochs": 80, "lr": 1e-3, "weight_decay": 1e-5},
+    {"name": "autoencoder", "latent_dim": 32, "hidden_dim": 128, "epochs": 80, "lr": 1e-3, "weight_decay": 1e-5},
+]
 
 FAST_DEBUG = False
 
@@ -87,36 +109,49 @@ tw_features = {
     for i in range(1, 7)
 }
 
-MODEL_FAMILIES = ["MLP", "GRU", "Transformer"] + (["Mamba"] if HAS_MAMBA else [])
+MODEL_FAMILIES = ["MLP", "RNN", "LSTM", "GRU", "Transformer"] + (["Mamba"] if HAS_MAMBA else [])
+ENSEMBLE_TOP_K = min(3, len(MODEL_FAMILIES))
 
 if FAST_DEBUG:
     PARAM_GRID = {
-        "MLP": [{"hidden_dim": 64, "dropout": 0.2, "num_layers": 2, "lr": 1e-3}],
-        "GRU": [{"hidden_dim": 64, "dropout": 0.2, "num_layers": 1, "lr": 1e-3}],
-        "Transformer": [{"hidden_dim": 64, "dropout": 0.2, "num_layers": 1, "lr": 1e-3}],
-        "Mamba": [{"hidden_dim": 64, "dropout": 0.2, "num_layers": 1, "lr": 1e-3}] if HAS_MAMBA else [],
+        "MLP": [{"hidden_dim": 64, "dropout": 0.2, "num_layers": 2, "lr": 1e-3, "weight_decay": 1e-4}],
+        "RNN": [{"hidden_dim": 64, "dropout": 0.2, "num_layers": 1, "lr": 1e-3, "weight_decay": 1e-4, "bidirectional": False}],
+        "LSTM": [{"hidden_dim": 64, "dropout": 0.2, "num_layers": 1, "lr": 1e-3, "weight_decay": 1e-4, "bidirectional": False}],
+        "GRU": [{"hidden_dim": 64, "dropout": 0.2, "num_layers": 1, "lr": 1e-3, "weight_decay": 1e-4, "bidirectional": False}],
+        "Transformer": [{"hidden_dim": 64, "dropout": 0.2, "num_layers": 1, "lr": 1e-3, "weight_decay": 1e-4}],
+        "Mamba": [{"hidden_dim": 64, "dropout": 0.2, "num_layers": 1, "lr": 1e-3, "weight_decay": 1e-4}] if HAS_MAMBA else [],
     }
 else:
     PARAM_GRID = {
         "MLP": [
-            {"hidden_dim": 64, "dropout": 0.0, "num_layers": 2, "lr": 1e-3},
-            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 2, "lr": 1e-3},
-            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 3, "lr": 3e-4},
+            {"hidden_dim": 64, "dropout": 0.0, "num_layers": 2, "lr": 1e-3, "weight_decay": 1e-5},
+            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 2, "lr": 1e-3, "weight_decay": 1e-4},
+            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 3, "lr": 3e-4, "weight_decay": 1e-3},
+        ],
+        "RNN": [
+            {"hidden_dim": 64, "dropout": 0.0, "num_layers": 1, "lr": 1e-3, "weight_decay": 1e-5, "bidirectional": False},
+            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 1, "lr": 1e-3, "weight_decay": 1e-4, "bidirectional": False},
+            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 2, "lr": 3e-4, "weight_decay": 1e-3, "bidirectional": True},
+        ],
+        "LSTM": [
+            {"hidden_dim": 64, "dropout": 0.0, "num_layers": 1, "lr": 1e-3, "weight_decay": 1e-5, "bidirectional": False},
+            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 1, "lr": 1e-3, "weight_decay": 1e-4, "bidirectional": False},
+            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 2, "lr": 3e-4, "weight_decay": 1e-3, "bidirectional": True},
         ],
         "GRU": [
-            {"hidden_dim": 64, "dropout": 0.0, "num_layers": 1, "lr": 1e-3},
-            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 1, "lr": 1e-3},
-            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 2, "lr": 3e-4},
+            {"hidden_dim": 64, "dropout": 0.0, "num_layers": 1, "lr": 1e-3, "weight_decay": 1e-5, "bidirectional": False},
+            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 1, "lr": 1e-3, "weight_decay": 1e-4, "bidirectional": False},
+            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 2, "lr": 3e-4, "weight_decay": 1e-3, "bidirectional": True},
         ],
         "Transformer": [
-            {"hidden_dim": 64, "dropout": 0.2, "num_layers": 1, "lr": 1e-3},
-            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 1, "lr": 1e-3},
-            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 2, "lr": 3e-4},
+            {"hidden_dim": 64, "dropout": 0.2, "num_layers": 1, "lr": 1e-3, "weight_decay": 1e-5},
+            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 1, "lr": 1e-3, "weight_decay": 1e-4},
+            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 2, "lr": 3e-4, "weight_decay": 1e-3},
         ],
         "Mamba": [
-            {"hidden_dim": 64, "dropout": 0.2, "num_layers": 1, "lr": 1e-3},
-            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 1, "lr": 1e-3},
-            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 2, "lr": 3e-4},
+            {"hidden_dim": 64, "dropout": 0.2, "num_layers": 1, "lr": 1e-3, "weight_decay": 1e-5},
+            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 1, "lr": 1e-3, "weight_decay": 1e-4},
+            {"hidden_dim": 128, "dropout": 0.2, "num_layers": 2, "lr": 3e-4, "weight_decay": 1e-3},
         ] if HAS_MAMBA else [],
     }
 
@@ -203,24 +238,140 @@ def scale_vent_train_only(X_train, X_other_list):
         outs.append(scaler.transform(Xo.reshape(-1, D)).reshape(No, T, D).astype(np.float32))
     return scaler, outs
 
-def fit_cxr_transform_train_only(X_train_img, X_other_list, use_pca=True, fit_dim=64, use_dim=32):
+class TabularAutoEncoder(nn.Module):
+    def __init__(self, input_dim, latent_dim=20, hidden_dim=128):
+        super().__init__()
+        hidden_dim = max(hidden_dim, latent_dim * 2)
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, latent_dim),
+        )
+        self.decoder = nn.Sequential(
+            nn.Linear(latent_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, input_dim),
+        )
+        self.apply(init_weights)
+
+    def forward(self, x):
+        z = self.encoder(x)
+        return self.decoder(z), z
+
+def fit_autoencoder_latent_train_only(X_train, X_other_list, cfg):
+    set_seed(SEED)
+    latent_dim = int(cfg.get("latent_dim", 20))
+    hidden_dim = int(cfg.get("hidden_dim", 128))
+    epochs = int(cfg.get("epochs", 80))
+    lr = float(cfg.get("lr", 1e-3))
+    weight_decay = float(cfg.get("weight_decay", 1e-5))
+    batch_size = int(cfg.get("batch_size", BATCH_SIZE))
+
+    model = TabularAutoEncoder(X_train.shape[1], latent_dim=latent_dim, hidden_dim=hidden_dim).to(DEVICE)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    criterion = nn.MSELoss()
+
+    X_tensor = torch.tensor(X_train, dtype=torch.float32)
+    perm = torch.randperm(X_tensor.shape[0])
+    val_count = min(max(1, int(round(0.15 * len(X_tensor)))), max(len(X_tensor) - 1, 1))
+    if len(X_tensor) <= 8:
+        val_count = max(1, len(X_tensor) // 4)
+    train_idx = perm[val_count:]
+    val_idx = perm[:val_count]
+    if len(train_idx) == 0:
+        train_idx = perm
+        val_idx = perm[:1]
+
+    ds_train = torch.utils.data.TensorDataset(X_tensor[train_idx])
+    ds_val = torch.utils.data.TensorDataset(X_tensor[val_idx])
+    dl_train = DataLoader(ds_train, batch_size=min(batch_size, len(ds_train)), shuffle=True)
+    dl_val = DataLoader(ds_val, batch_size=min(batch_size, len(ds_val)), shuffle=False)
+
+    best_state = None
+    best_loss = np.inf
+    wait = 0
+    for _ in range(epochs):
+        model.train()
+        for (xb,) in dl_train:
+            xb = xb.to(DEVICE)
+            optimizer.zero_grad()
+            recon, _ = model(xb)
+            loss = criterion(recon, xb)
+            loss.backward()
+            optimizer.step()
+        model.eval()
+        val_losses = []
+        with torch.no_grad():
+            for (xb,) in dl_val:
+                xb = xb.to(DEVICE)
+                recon, _ = model(xb)
+                val_losses.append(criterion(recon, xb).item())
+        val_loss = float(np.mean(val_losses)) if val_losses else np.inf
+        if val_loss < best_loss:
+            best_loss = val_loss
+            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+            wait = 0
+        else:
+            wait += 1
+            if wait >= max(5, PATIENCE // 2):
+                break
+
+    if best_state is not None:
+        model.load_state_dict(best_state)
+    model.eval()
+
+    def encode(arr):
+        with torch.no_grad():
+            xb = torch.tensor(arr, dtype=torch.float32, device=DEVICE)
+            _, z = model(xb)
+            return z.detach().cpu().numpy().astype(np.float32)
+
+    outs = [encode(X_train)]
+    for Xo in X_other_list:
+        outs.append(encode(Xo))
+    artifact = {
+        "name": "autoencoder",
+        "latent_dim": latent_dim,
+        "hidden_dim": hidden_dim,
+        "epochs": epochs,
+        "lr": lr,
+        "weight_decay": weight_decay,
+        "state_dict": {k: v.detach().cpu() for k, v in model.state_dict().items()},
+        "best_recon_loss": best_loss,
+    }
+    return artifact, outs
+
+def fit_cxr_transform_train_only(X_train_img, X_other_list, reducer_cfg=None):
+    reducer_cfg = reducer_cfg or {"name": "pca", "fit_dim": 64, "latent_dim": 32}
     img_scaler = StandardScaler()
     X_train_img_s = img_scaler.fit_transform(X_train_img)
-    if use_pca:
-        pca = PCA(n_components=min(fit_dim, X_train_img_s.shape[0], X_train_img_s.shape[1]), random_state=SEED)
-        X_train_img_t = pca.fit_transform(X_train_img_s)[:, :min(use_dim, pca.n_components_)].astype(np.float32)
-    else:
-        pca = None
-        X_train_img_t = X_train_img_s.astype(np.float32)
+    reducer_name = reducer_cfg.get("name", "pca").lower()
 
-    outs = [X_train_img_t]
-    for Xo in X_other_list:
-        Xo_s = img_scaler.transform(Xo)
-        if use_pca:
-            outs.append(pca.transform(Xo_s)[:, :min(use_dim, pca.n_components_)].astype(np.float32))
-        else:
-            outs.append(Xo_s.astype(np.float32))
-    return img_scaler, pca, outs
+    if reducer_name == "pca":
+        fit_dim = int(reducer_cfg.get("fit_dim", 64))
+        use_dim = int(reducer_cfg.get("latent_dim", 32))
+        reducer = PCA(n_components=min(fit_dim, X_train_img_s.shape[0], X_train_img_s.shape[1]), random_state=SEED)
+        X_train_img_t = reducer.fit_transform(X_train_img_s)[:, :min(use_dim, reducer.n_components_)].astype(np.float32)
+        outs = [X_train_img_t]
+        for Xo in X_other_list:
+            Xo_s = img_scaler.transform(Xo)
+            outs.append(reducer.transform(Xo_s)[:, :min(use_dim, reducer.n_components_)].astype(np.float32))
+        artifact = {"name": "pca", "model": reducer, "latent_dim": X_train_img_t.shape[1], "fit_dim": fit_dim}
+        return img_scaler, artifact, outs
+
+    if reducer_name == "autoencoder":
+        artifact, outs = fit_autoencoder_latent_train_only(X_train_img_s.astype(np.float32), [img_scaler.transform(Xo).astype(np.float32) for Xo in X_other_list], reducer_cfg)
+        artifact["latent_dim"] = outs[0].shape[1]
+        return img_scaler, artifact, outs
+
+    if reducer_name == "none":
+        outs = [X_train_img_s.astype(np.float32)]
+        for Xo in X_other_list:
+            outs.append(img_scaler.transform(Xo).astype(np.float32))
+        artifact = {"name": "none", "latent_dim": X_train_img_s.shape[1]}
+        return img_scaler, artifact, outs
+
+    raise ValueError(f"Unknown CXR reducer: {reducer_name}")
 
 def rmse(y_true, y_pred):
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
@@ -230,6 +381,30 @@ def mae(y_true, y_pred):
 
 def regression_metrics(y_true, y_pred):
     return {"RMSE": rmse(y_true, y_pred), "MAE": mae(y_true, y_pred), "R2": float(r2_score(y_true, y_pred)), "N": int(len(y_true))}
+
+def bootstrap_ci_regression_grouped(y_true, y_pred, groups, B=1000, seed=0):
+    y_true = np.asarray(y_true).astype(float)
+    y_pred = np.asarray(y_pred).astype(float)
+    groups = np.asarray(groups).astype(str)
+    unique_groups = np.unique(groups)
+    rng = np.random.RandomState(seed)
+    rows = []
+    metric_vals = {"RMSE": [], "MAE": [], "R2": []}
+    point = regression_metrics(y_true, y_pred)
+    for _ in range(B):
+        sampled = rng.choice(unique_groups, size=len(unique_groups), replace=True)
+        idx = np.concatenate([np.where(groups == g)[0] for g in sampled])
+        yt = y_true[idx]
+        yp = y_pred[idx]
+        m = regression_metrics(yt, yp)
+        for k in metric_vals:
+            if np.isfinite(m[k]):
+                metric_vals[k].append(m[k])
+    for metric, vals in metric_vals.items():
+        if not vals:
+            continue
+        rows.append({"metric": metric, "point": point[metric], "ci_low": float(np.percentile(vals, 2.5)), "ci_high": float(np.percentile(vals, 97.5)), "n_valid_bootstrap": int(len(vals))})
+    return pd.DataFrame(rows)
 
 def scale_targets_train_only(y_train, y_other_list):
     scaler = StandardScaler()
@@ -326,19 +501,40 @@ class VentMLP(nn.Module):
     def forward(self, xv):
         return self.net(xv.flatten(start_dim=1))
 
-class VentGRU(nn.Module):
-    def __init__(self, vent_dim_per_tw, hidden_dim=128, num_layers=1, dropout=0.2):
+class VentRecurrent(nn.Module):
+    def __init__(self, rnn_type, vent_dim_per_tw, hidden_dim=128, num_layers=1, dropout=0.2, bidirectional=False):
         super().__init__()
         if num_layers == 1:
             dropout = 0.0
-        self.gru = nn.GRU(vent_dim_per_tw, hidden_dim, num_layers=num_layers, dropout=dropout, batch_first=True)
-        self.pool = AttentionPool(hidden_dim)
-        self.fc = nn.Linear(hidden_dim, 1)
+        rnn_cls = {"RNN": nn.RNN, "LSTM": nn.LSTM, "GRU": nn.GRU}[rnn_type]
+        self.rnn = rnn_cls(
+            vent_dim_per_tw,
+            hidden_dim,
+            num_layers=num_layers,
+            dropout=dropout,
+            batch_first=True,
+            bidirectional=bidirectional,
+        )
+        out_dim = hidden_dim * (2 if bidirectional else 1)
+        self.pool = AttentionPool(out_dim)
+        self.fc = nn.Linear(out_dim, 1)
         self.apply(init_weights)
 
     def forward(self, xv):
-        h, _ = self.gru(xv)
+        h, _ = self.rnn(xv)
         return self.fc(self.pool(h))
+
+class VentRNN(VentRecurrent):
+    def __init__(self, vent_dim_per_tw, hidden_dim=128, num_layers=1, dropout=0.2, bidirectional=False):
+        super().__init__("RNN", vent_dim_per_tw, hidden_dim=hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional)
+
+class VentLSTM(VentRecurrent):
+    def __init__(self, vent_dim_per_tw, hidden_dim=128, num_layers=1, dropout=0.2, bidirectional=False):
+        super().__init__("LSTM", vent_dim_per_tw, hidden_dim=hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional)
+
+class VentGRU(VentRecurrent):
+    def __init__(self, vent_dim_per_tw, hidden_dim=128, num_layers=1, dropout=0.2, bidirectional=False):
+        super().__init__("GRU", vent_dim_per_tw, hidden_dim=hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional)
 
 class VentTransformer(nn.Module):
     def __init__(self, vent_dim_per_tw, hidden_dim=128, num_layers=1, dropout=0.2):
@@ -392,20 +588,41 @@ class EarlyFusionMLP(nn.Module):
         xi_rep = xi.unsqueeze(1).repeat(1, xv.size(1), 1)
         return self.net(torch.cat([xv, xi_rep], dim=-1).flatten(start_dim=1))
 
-class EarlyFusionGRU(nn.Module):
-    def __init__(self, vent_dim_per_tw, img_dim=32, hidden_dim=128, num_layers=1, dropout=0.2):
+class EarlyFusionRecurrent(nn.Module):
+    def __init__(self, rnn_type, vent_dim_per_tw, img_dim=32, hidden_dim=128, num_layers=1, dropout=0.2, bidirectional=False):
         super().__init__()
         if num_layers == 1:
             dropout = 0.0
-        self.gru = nn.GRU(vent_dim_per_tw + img_dim, hidden_dim, num_layers=num_layers, dropout=dropout, batch_first=True)
-        self.pool = AttentionPool(hidden_dim)
-        self.fc = nn.Linear(hidden_dim, 1)
+        rnn_cls = {"RNN": nn.RNN, "LSTM": nn.LSTM, "GRU": nn.GRU}[rnn_type]
+        self.rnn = rnn_cls(
+            vent_dim_per_tw + img_dim,
+            hidden_dim,
+            num_layers=num_layers,
+            dropout=dropout,
+            batch_first=True,
+            bidirectional=bidirectional,
+        )
+        out_dim = hidden_dim * (2 if bidirectional else 1)
+        self.pool = AttentionPool(out_dim)
+        self.fc = nn.Linear(out_dim, 1)
         self.apply(init_weights)
 
     def forward(self, xv, xi):
         xi_rep = xi.unsqueeze(1).repeat(1, xv.size(1), 1)
-        h, _ = self.gru(torch.cat([xv, xi_rep], dim=-1))
+        h, _ = self.rnn(torch.cat([xv, xi_rep], dim=-1))
         return self.fc(self.pool(h))
+
+class EarlyFusionRNN(EarlyFusionRecurrent):
+    def __init__(self, vent_dim_per_tw, img_dim=32, hidden_dim=128, num_layers=1, dropout=0.2, bidirectional=False):
+        super().__init__("RNN", vent_dim_per_tw, img_dim=img_dim, hidden_dim=hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional)
+
+class EarlyFusionLSTM(EarlyFusionRecurrent):
+    def __init__(self, vent_dim_per_tw, img_dim=32, hidden_dim=128, num_layers=1, dropout=0.2, bidirectional=False):
+        super().__init__("LSTM", vent_dim_per_tw, img_dim=img_dim, hidden_dim=hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional)
+
+class EarlyFusionGRU(EarlyFusionRecurrent):
+    def __init__(self, vent_dim_per_tw, img_dim=32, hidden_dim=128, num_layers=1, dropout=0.2, bidirectional=False):
+        super().__init__("GRU", vent_dim_per_tw, img_dim=img_dim, hidden_dim=hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional)
 
 class EarlyFusionTransformer(nn.Module):
     def __init__(self, vent_dim_per_tw, img_dim=32, hidden_dim=128, num_layers=1, dropout=0.2):
@@ -471,20 +688,29 @@ class CrossFusionMLP(nn.Module):
         i = self.img_branch(xi)
         return self.head(torch.cat([v, i, v * i], dim=1))
 
-class CrossFusionGRU(nn.Module):
-    def __init__(self, vent_dim_per_tw, img_dim=32, hidden_dim=128, num_layers=1, dropout=0.2):
+class CrossFusionRecurrent(nn.Module):
+    def __init__(self, rnn_type, vent_dim_per_tw, img_dim=32, hidden_dim=128, num_layers=1, dropout=0.2, bidirectional=False):
         super().__init__()
         if num_layers == 1:
             dropout = 0.0
-        self.vent_encoder = nn.GRU(vent_dim_per_tw, hidden_dim, num_layers=num_layers, dropout=dropout, batch_first=True)
-        self.vent_pool = AttentionPool(hidden_dim)
+        rnn_cls = {"RNN": nn.RNN, "LSTM": nn.LSTM, "GRU": nn.GRU}[rnn_type]
+        self.vent_encoder = rnn_cls(
+            vent_dim_per_tw,
+            hidden_dim,
+            num_layers=num_layers,
+            dropout=dropout,
+            batch_first=True,
+            bidirectional=bidirectional,
+        )
+        out_dim = hidden_dim * (2 if bidirectional else 1)
+        self.vent_pool = AttentionPool(out_dim)
         self.img_branch = nn.Sequential(
-            nn.Linear(img_dim, hidden_dim), nn.ReLU(), nn.Dropout(dropout),
-            nn.Linear(hidden_dim, hidden_dim), nn.ReLU()
+            nn.Linear(img_dim, out_dim), nn.ReLU(), nn.Dropout(dropout),
+            nn.Linear(out_dim, out_dim), nn.ReLU()
         )
         self.head = nn.Sequential(
-            nn.Linear(hidden_dim * 3, hidden_dim), nn.ReLU(), nn.Dropout(dropout),
-            nn.Linear(hidden_dim, 1)
+            nn.Linear(out_dim * 3, out_dim), nn.ReLU(), nn.Dropout(dropout),
+            nn.Linear(out_dim, 1)
         )
         self.apply(init_weights)
 
@@ -493,6 +719,18 @@ class CrossFusionGRU(nn.Module):
         v = self.vent_pool(h)
         i = self.img_branch(xi)
         return self.head(torch.cat([v, i, v * i], dim=1))
+
+class CrossFusionRNN(CrossFusionRecurrent):
+    def __init__(self, vent_dim_per_tw, img_dim=32, hidden_dim=128, num_layers=1, dropout=0.2, bidirectional=False):
+        super().__init__("RNN", vent_dim_per_tw, img_dim=img_dim, hidden_dim=hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional)
+
+class CrossFusionLSTM(CrossFusionRecurrent):
+    def __init__(self, vent_dim_per_tw, img_dim=32, hidden_dim=128, num_layers=1, dropout=0.2, bidirectional=False):
+        super().__init__("LSTM", vent_dim_per_tw, img_dim=img_dim, hidden_dim=hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional)
+
+class CrossFusionGRU(CrossFusionRecurrent):
+    def __init__(self, vent_dim_per_tw, img_dim=32, hidden_dim=128, num_layers=1, dropout=0.2, bidirectional=False):
+        super().__init__("GRU", vent_dim_per_tw, img_dim=img_dim, hidden_dim=hidden_dim, num_layers=num_layers, dropout=dropout, bidirectional=bidirectional)
 
 class CrossFusionTransformer(nn.Module):
     def __init__(self, vent_dim_per_tw, img_dim=32, hidden_dim=128, num_layers=1, dropout=0.2):
@@ -551,8 +789,12 @@ class CrossFusionMamba(nn.Module):
 def build_baseline_model(family, vent_dim_per_tw, cfg):
     if family == "MLP":
         return VentMLP(vent_dim_per_tw, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"])
+    if family == "RNN":
+        return VentRNN(vent_dim_per_tw, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"], bidirectional=cfg.get("bidirectional", False))
+    if family == "LSTM":
+        return VentLSTM(vent_dim_per_tw, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"], bidirectional=cfg.get("bidirectional", False))
     if family == "GRU":
-        return VentGRU(vent_dim_per_tw, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"])
+        return VentGRU(vent_dim_per_tw, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"], bidirectional=cfg.get("bidirectional", False))
     if family == "Transformer":
         return VentTransformer(vent_dim_per_tw, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"])
     if family == "Mamba":
@@ -563,8 +805,12 @@ def build_teacher_model(family, fusion_type, vent_dim_per_tw, img_dim, cfg):
     if fusion_type == "early":
         if family == "MLP":
             return EarlyFusionMLP(vent_dim_per_tw, img_dim=img_dim, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"])
+        if family == "RNN":
+            return EarlyFusionRNN(vent_dim_per_tw, img_dim=img_dim, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"], bidirectional=cfg.get("bidirectional", False))
+        if family == "LSTM":
+            return EarlyFusionLSTM(vent_dim_per_tw, img_dim=img_dim, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"], bidirectional=cfg.get("bidirectional", False))
         if family == "GRU":
-            return EarlyFusionGRU(vent_dim_per_tw, img_dim=img_dim, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"])
+            return EarlyFusionGRU(vent_dim_per_tw, img_dim=img_dim, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"], bidirectional=cfg.get("bidirectional", False))
         if family == "Transformer":
             return EarlyFusionTransformer(vent_dim_per_tw, img_dim=img_dim, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"])
         if family == "Mamba":
@@ -572,8 +818,12 @@ def build_teacher_model(family, fusion_type, vent_dim_per_tw, img_dim, cfg):
     if fusion_type == "cross":
         if family == "MLP":
             return CrossFusionMLP(vent_dim_per_tw, img_dim=img_dim, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"])
+        if family == "RNN":
+            return CrossFusionRNN(vent_dim_per_tw, img_dim=img_dim, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"], bidirectional=cfg.get("bidirectional", False))
+        if family == "LSTM":
+            return CrossFusionLSTM(vent_dim_per_tw, img_dim=img_dim, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"], bidirectional=cfg.get("bidirectional", False))
         if family == "GRU":
-            return CrossFusionGRU(vent_dim_per_tw, img_dim=img_dim, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"])
+            return CrossFusionGRU(vent_dim_per_tw, img_dim=img_dim, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"], bidirectional=cfg.get("bidirectional", False))
         if family == "Transformer":
             return CrossFusionTransformer(vent_dim_per_tw, img_dim=img_dim, hidden_dim=cfg["hidden_dim"], num_layers=cfg["num_layers"], dropout=cfg["dropout"])
         if family == "Mamba":
@@ -587,7 +837,7 @@ class FitResult:
 
 def train_baseline(model, train_loader, val_loader, cfg):
     model = model.to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg["lr"], weight_decay=WEIGHT_DECAY)
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg["lr"], weight_decay=cfg.get("weight_decay", 1e-4))
     criterion = nn.MSELoss()
     best_loss = np.inf
     best_state = None
@@ -604,14 +854,17 @@ def train_baseline(model, train_loader, val_loader, cfg):
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-        model.eval()
-        val_losses = []
-        with torch.no_grad():
-            for xv, y in val_loader:
-                xv, y = xv.to(DEVICE), y.to(DEVICE)
-                pred = model(xv)
-                val_losses.append(criterion(pred, y).item())
-        val_loss = float(np.mean(val_losses))
+        if val_loader is None:
+            val_loss = float(loss.item())
+        else:
+            model.eval()
+            val_losses = []
+            with torch.no_grad():
+                for xv, y in val_loader:
+                    xv, y = xv.to(DEVICE), y.to(DEVICE)
+                    pred = model(xv)
+                    val_losses.append(criterion(pred, y).item())
+            val_loss = float(np.mean(val_losses))
         if val_loss < best_loss:
             best_loss = val_loss
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
@@ -625,7 +878,7 @@ def train_baseline(model, train_loader, val_loader, cfg):
 
 def train_teacher(model, train_loader, val_loader, cfg):
     model = model.to(DEVICE)
-    optimizer = torch.optim.Adam(model.parameters(), lr=cfg["lr"], weight_decay=WEIGHT_DECAY)
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg["lr"], weight_decay=cfg.get("weight_decay", 1e-4))
     criterion = nn.MSELoss()
     best_loss = np.inf
     best_state = None
@@ -642,14 +895,17 @@ def train_teacher(model, train_loader, val_loader, cfg):
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-        model.eval()
-        val_losses = []
-        with torch.no_grad():
-            for xv, xi, y in val_loader:
-                xv, xi, y = xv.to(DEVICE), xi.to(DEVICE), y.to(DEVICE)
-                pred = model(xv, xi)
-                val_losses.append(criterion(pred, y).item())
-        val_loss = float(np.mean(val_losses))
+        if val_loader is None:
+            val_loss = float(loss.item())
+        else:
+            model.eval()
+            val_losses = []
+            with torch.no_grad():
+                for xv, xi, y in val_loader:
+                    xv, xi, y = xv.to(DEVICE), xi.to(DEVICE), y.to(DEVICE)
+                    pred = model(xv, xi)
+                    val_losses.append(criterion(pred, y).item())
+            val_loss = float(np.mean(val_losses))
         if val_loss < best_loss:
             best_loss = val_loss
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
@@ -665,8 +921,10 @@ def train_student(student, teacher, train_loader, val_loader, cfg):
     student = student.to(DEVICE)
     teacher = teacher.to(DEVICE)
     teacher.eval()
-    optimizer = torch.optim.Adam(student.parameters(), lr=cfg["lr"], weight_decay=WEIGHT_DECAY)
+    optimizer = torch.optim.Adam(student.parameters(), lr=cfg["lr"], weight_decay=cfg.get("weight_decay", 1e-4))
     mse = nn.MSELoss()
+    alpha = float(cfg.get("alpha", 0.8))
+    beta = float(cfg.get("beta", 0.2))
     best_loss = np.inf
     best_state = None
     wait = 0
@@ -679,24 +937,27 @@ def train_student(student, teacher, train_loader, val_loader, cfg):
             s_pred = student(xv)
             hard_loss = mse(s_pred, y)
             soft_loss = mse(s_pred, t_pred)
-            loss = ALPHA * hard_loss + BETA * soft_loss
+            loss = alpha * hard_loss + beta * soft_loss
             if torch.isnan(loss) or torch.isinf(loss):
                 continue
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(student.parameters(), max_norm=1.0)
             optimizer.step()
-        student.eval()
-        val_losses = []
-        with torch.no_grad():
-            for xv, xi, y in val_loader:
-                xv, xi, y = xv.to(DEVICE), xi.to(DEVICE), y.to(DEVICE)
-                t_pred = teacher(xv, xi)
-                s_pred = student(xv)
-                hard_loss = mse(s_pred, y)
-                soft_loss = mse(s_pred, t_pred)
-                val_losses.append((ALPHA * hard_loss + BETA * soft_loss).item())
-        val_loss = float(np.mean(val_losses))
+        if val_loader is None:
+            val_loss = float(loss.item())
+        else:
+            student.eval()
+            val_losses = []
+            with torch.no_grad():
+                for xv, xi, y in val_loader:
+                    xv, xi, y = xv.to(DEVICE), xi.to(DEVICE), y.to(DEVICE)
+                    t_pred = teacher(xv, xi)
+                    s_pred = student(xv)
+                    hard_loss = mse(s_pred, y)
+                    soft_loss = mse(s_pred, t_pred)
+                    val_losses.append((alpha * hard_loss + beta * soft_loss).item())
+            val_loss = float(np.mean(val_losses))
         if val_loss < best_loss:
             best_loss = val_loss
             best_state = {k: v.detach().cpu().clone() for k, v in student.state_dict().items()}
@@ -722,6 +983,56 @@ def predict_teacher(model, Xv, Xi):
         xi = torch.tensor(Xi, dtype=torch.float32, device=DEVICE)
         pred = model(xv, xi).detach().cpu().numpy()
     return pred
+
+def get_inner_train_val_split(df, y, groups, val_ratio=0.15, seed=3469):
+    splitter = GroupShuffleSplit(n_splits=1, test_size=val_ratio, random_state=seed)
+    return next(splitter.split(df, y, groups=groups))
+
+def mean_stack(arr_list):
+    return np.mean(np.stack(arr_list, axis=0), axis=0)
+
+def save_regression_posthoc(prefix, y_true, y_pred, groups, out_dir):
+    pd.DataFrame([regression_metrics(y_true, y_pred)]).to_csv(os.path.join(out_dir, f"{prefix}_point_metrics.csv"), index=False)
+    if RUN_BOOTSTRAP_CI_EVAL:
+        bootstrap_ci_regression_grouped(y_true, y_pred, groups, B=BOOTSTRAP_B, seed=SEED).to_csv(os.path.join(out_dir, f"{prefix}_bootstrap_ci.csv"), index=False)
+
+def train_eval_single_run_regression(experiment_type, family, run_seed, reducer_cfg=None, distill_cfg=None, fraction=1.0):
+    set_seed(run_seed)
+    idx_all = np.arange(len(df_train))
+    if fraction < 1.0:
+        rng = np.random.RandomState(run_seed)
+        sample_n = max(8, int(round(len(idx_all) * fraction)))
+        chosen = np.sort(rng.choice(idx_all, size=sample_n, replace=False))
+    else:
+        chosen = idx_all
+    df_train_sub = df_train.iloc[chosen].copy().reset_index(drop=True)
+    groups_sub = df_train_sub[detect_group_col(df_train_sub)].astype(str).to_numpy() if detect_group_col(df_train_sub) else np.arange(len(df_train_sub)).astype(str)
+    Xv_sub_raw = build_vent_seq_from_df(df_train_sub)
+    _, [Xv_sub, Xv_te, Xv_v3_sub] = scale_vent_train_only(Xv_sub_raw, [Xv_test_raw, Xv_v3_raw])
+    y_sub_raw = df_train_sub[target_train].to_numpy(dtype=np.float32)
+    y_scaler_sub, [y_sub] = scale_targets_train_only(y_sub_raw, [])
+    inner_tr_idx, inner_va_idx = get_inner_train_val_split(df=df_train_sub, y=y_sub_raw, groups=groups_sub, val_ratio=FINAL_VAL_RATIO, seed=run_seed)
+    Xv_tr, Xv_va = Xv_sub[inner_tr_idx], Xv_sub[inner_va_idx]
+    y_tr, y_va = y_sub[inner_tr_idx], y_sub[inner_va_idx]
+    baseline_tr_loader = DataLoader(VentOnlyDataset(Xv_tr, y_tr), batch_size=BATCH_SIZE, shuffle=True)
+    baseline_va_loader = DataLoader(VentOnlyDataset(Xv_va, y_va), batch_size=BATCH_SIZE, shuffle=False)
+    cfg = best_baseline[family]["cfg"] if experiment_type == "baseline" else best_student[family]["cfg"] if experiment_type == "student" else best_teacher[family]["cfg"]
+    if experiment_type == "baseline":
+        model = train_baseline(build_baseline_model(family, VENT_DIM, cfg), baseline_tr_loader, baseline_va_loader, cfg).model
+        return y_scaler_sub.inverse_transform(predict_baseline(model, Xv_te)).ravel(), y_scaler_sub.inverse_transform(predict_baseline(model, Xv_v3_sub)).ravel()
+    Xi_sub_raw = df_train_sub[cxr_emb_cols].to_numpy(dtype=np.float32)
+    _, _, [Xi_sub, Xi_te] = fit_cxr_transform_train_only(Xi_sub_raw, [Xi_test_raw], reducer_cfg=reducer_cfg)
+    Xi_tr, Xi_va = Xi_sub[inner_tr_idx], Xi_sub[inner_va_idx]
+    multi_tr_loader = DataLoader(MultiDataset(Xv_tr, Xi_tr, y_tr), batch_size=BATCH_SIZE, shuffle=True)
+    multi_va_loader = DataLoader(MultiDataset(Xv_va, Xi_va, y_va), batch_size=BATCH_SIZE, shuffle=False)
+    if experiment_type == "teacher":
+        model = train_teacher(build_teacher_model(family, best_teacher[family]["fusion"], VENT_DIM, Xi_sub.shape[1], cfg), multi_tr_loader, multi_va_loader, cfg).model
+        return y_scaler_sub.inverse_transform(predict_teacher(model, Xv_te, Xi_te)).ravel(), None
+    teacher_cfg = best_teacher[family]["cfg"]
+    teacher_model = train_teacher(build_teacher_model(family, best_teacher[family]["fusion"], VENT_DIM, Xi_sub.shape[1], teacher_cfg), multi_tr_loader, multi_va_loader, teacher_cfg).model
+    student_cfg = {**best_student[family]["cfg"], **(distill_cfg or best_student[family]["distill_cfg"])}
+    student_model = train_student(build_baseline_model(family, VENT_DIM, best_student[family]["cfg"]), teacher_model, multi_tr_loader, multi_va_loader, student_cfg).model
+    return y_scaler_sub.inverse_transform(predict_baseline(student_model, Xv_te)).ravel(), y_scaler_sub.inverse_transform(predict_baseline(student_model, Xv_v3_sub)).ravel()
 
 
 df_multi = pd.read_csv(V1V2_MULTI_PATH)
@@ -774,7 +1085,8 @@ def prepare_fold_data(df_tr_raw, df_va_raw):
 
     Xi_tr_raw = df_tr[cxr_emb_cols].to_numpy(dtype=np.float32)
     Xi_va_raw = df_va[cxr_emb_cols].to_numpy(dtype=np.float32)
-    _, _, [Xi_tr, Xi_va] = fit_cxr_transform_train_only(Xi_tr_raw, [Xi_va_raw], use_pca=USE_CXR_PCA, fit_dim=CXR_PCA_FIT_DIM, use_dim=CXR_PCA_USE_DIM)
+    reducer_cfg = df_tr_raw.attrs.get("cxr_reducer_cfg", CXR_REDUCER_CANDIDATES[0])
+    _, _, [Xi_tr, Xi_va] = fit_cxr_transform_train_only(Xi_tr_raw, [Xi_va_raw], reducer_cfg=reducer_cfg)
 
     y_tr_raw = df_tr[target_train].to_numpy(dtype=np.float32)
     y_va_raw = df_va[target_train].to_numpy(dtype=np.float32)
@@ -800,19 +1112,42 @@ def evaluate_cv_baseline(family, cfg, df_train_raw, groups_train):
         fold_rmses.append(rmse(truth, pred))
     return float(np.mean(fold_rmses)), float(np.std(fold_rmses))
 
-def evaluate_cv_teacher(family, fusion_type, cfg, df_train_raw, groups_train):
+def evaluate_cv_teacher(family, fusion_type, cfg, reducer_cfg, df_train_raw, groups_train):
     gkf = GroupKFold(n_splits=N_FOLDS)
     fold_rmses = []
     dummy_y = df_train_raw[target_train].to_numpy(dtype=np.float32)
     for tr_i, va_i in gkf.split(df_train_raw, dummy_y, groups=groups_train):
         df_tr_raw = df_train_raw.iloc[tr_i].copy()
         df_va_raw = df_train_raw.iloc[va_i].copy()
+        df_tr_raw.attrs["cxr_reducer_cfg"] = reducer_cfg
         prep = prepare_fold_data(df_tr_raw, df_va_raw)
         tr_loader = DataLoader(MultiDataset(prep["Xv_tr"], prep["Xi_tr"], prep["y_tr"]), batch_size=BATCH_SIZE, shuffle=True)
         va_loader = DataLoader(MultiDataset(prep["Xv_va"], prep["Xi_va"], prep["y_va"]), batch_size=BATCH_SIZE, shuffle=False)
         model = build_teacher_model(family, fusion_type, VENT_DIM, prep["Xi_tr"].shape[1], cfg)
         result = train_teacher(model, tr_loader, va_loader, cfg)
         pred_scaled = predict_teacher(result.model, prep["Xv_va"], prep["Xi_va"])
+        pred = prep["y_scaler"].inverse_transform(pred_scaled).ravel()
+        truth = prep["y_va_raw"].ravel()
+        fold_rmses.append(rmse(truth, pred))
+    return float(np.mean(fold_rmses)), float(np.std(fold_rmses))
+
+def evaluate_cv_student(family, fusion_type, teacher_cfg, student_cfg, reducer_cfg, distill_cfg, df_train_raw, groups_train):
+    gkf = GroupKFold(n_splits=N_FOLDS)
+    fold_rmses = []
+    dummy_y = df_train_raw[target_train].to_numpy(dtype=np.float32)
+    for tr_i, va_i in gkf.split(df_train_raw, dummy_y, groups=groups_train):
+        df_tr_raw = df_train_raw.iloc[tr_i].copy()
+        df_va_raw = df_train_raw.iloc[va_i].copy()
+        df_tr_raw.attrs["cxr_reducer_cfg"] = reducer_cfg
+        prep = prepare_fold_data(df_tr_raw, df_va_raw)
+        tr_loader = DataLoader(MultiDataset(prep["Xv_tr"], prep["Xi_tr"], prep["y_tr"]), batch_size=BATCH_SIZE, shuffle=True)
+        va_loader = DataLoader(MultiDataset(prep["Xv_va"], prep["Xi_va"], prep["y_va"]), batch_size=BATCH_SIZE, shuffle=False)
+        teacher = build_teacher_model(family, fusion_type, VENT_DIM, prep["Xi_tr"].shape[1], teacher_cfg)
+        teacher = train_teacher(teacher, tr_loader, va_loader, teacher_cfg).model
+        student = build_baseline_model(family, VENT_DIM, student_cfg)
+        student_fit_cfg = {**student_cfg, **distill_cfg}
+        student = train_student(student, teacher, tr_loader, va_loader, student_fit_cfg).model
+        pred_scaled = predict_baseline(student, prep["Xv_va"])
         pred = prep["y_scaler"].inverse_transform(pred_scaled).ravel()
         truth = prep["y_va_raw"].ravel()
         fold_rmses.append(rmse(truth, pred))
@@ -836,19 +1171,39 @@ best_teacher = {}
 for family in MODEL_FAMILIES:
     best_rmse, best_cfg, best_fusion = np.inf, None, None
     for fusion_type in ["early", "cross"]:
-        for cfg in PARAM_GRID[family]:
-            mean_rmse, std_rmse = evaluate_cv_teacher(family, fusion_type, cfg, df_train_raw, groups_train)
-            teacher_cv_rows.append({"family": family, "fusion": fusion_type, "hidden_dim": cfg["hidden_dim"], "dropout": cfg["dropout"], "num_layers": cfg["num_layers"], "lr": cfg["lr"], "cv_rmse_mean": mean_rmse, "cv_rmse_std": std_rmse})
-            print(f"[TEACHER][{family}][{fusion_type}] {cfg} -> RMSE {mean_rmse:.4f} ± {std_rmse:.4f}")
-            if mean_rmse < best_rmse:
-                best_rmse, best_cfg, best_fusion = mean_rmse, cfg, fusion_type
-    best_teacher[family] = {"cfg": best_cfg, "fusion": best_fusion, "cv_rmse": best_rmse}
+        for reducer_cfg in CXR_REDUCER_CANDIDATES:
+            for cfg in PARAM_GRID[family]:
+                mean_rmse, std_rmse = evaluate_cv_teacher(family, fusion_type, cfg, reducer_cfg, df_train_raw, groups_train)
+                teacher_cv_rows.append({"family": family, "fusion": fusion_type, "cxr_reducer": reducer_cfg["name"], "cxr_latent_dim": reducer_cfg.get("latent_dim"), "hidden_dim": cfg["hidden_dim"], "dropout": cfg["dropout"], "num_layers": cfg["num_layers"], "lr": cfg["lr"], "weight_decay": cfg.get("weight_decay"), "bidirectional": cfg.get("bidirectional", False), "cv_rmse_mean": mean_rmse, "cv_rmse_std": std_rmse})
+                print(f"[TEACHER][{family}][{fusion_type}][{reducer_cfg['name']}] {cfg} -> RMSE {mean_rmse:.4f} ± {std_rmse:.4f}")
+                if mean_rmse < best_rmse:
+                    best_rmse, best_cfg, best_fusion = mean_rmse, cfg, fusion_type
+                    best_teacher[family] = {"cfg": best_cfg, "fusion": best_fusion, "reducer_cfg": reducer_cfg, "cv_rmse": best_rmse}
 pd.DataFrame(teacher_cv_rows).to_csv(os.path.join(OUT_DIR, "teacher_cv_results.csv"), index=False)
+
+student_cv_rows = []
+best_student = {}
+for family in MODEL_FAMILIES:
+    teacher_cfg = best_teacher[family]["cfg"]
+    teacher_fusion = best_teacher[family]["fusion"]
+    reducer_cfg = best_teacher[family]["reducer_cfg"]
+    best_rmse, best_cfg, best_distill = np.inf, None, None
+    for cfg in PARAM_GRID[family]:
+        for distill_cfg in DISTILLATION_CANDIDATES:
+            mean_rmse, std_rmse = evaluate_cv_student(family, teacher_fusion, teacher_cfg, cfg, reducer_cfg, distill_cfg, df_train_raw, groups_train)
+            student_cv_rows.append({"family": family, "teacher_fusion": teacher_fusion, "cxr_reducer": reducer_cfg["name"], "student_hidden_dim": cfg["hidden_dim"], "student_dropout": cfg["dropout"], "student_num_layers": cfg["num_layers"], "student_lr": cfg["lr"], "student_weight_decay": cfg.get("weight_decay"), "student_bidirectional": cfg.get("bidirectional", False), "alpha": distill_cfg["alpha"], "beta": distill_cfg["beta"], "cv_rmse_mean": mean_rmse, "cv_rmse_std": std_rmse})
+            print(f"[STUDENT][{family}][alpha={distill_cfg['alpha']:.2f},beta={distill_cfg['beta']:.2f}] {cfg} -> RMSE {mean_rmse:.4f} ± {std_rmse:.4f}")
+            if mean_rmse < best_rmse:
+                best_rmse, best_cfg, best_distill = mean_rmse, cfg, distill_cfg
+    best_student[family] = {"cfg": best_cfg, "distill_cfg": best_distill, "cv_rmse": best_rmse}
+pd.DataFrame(student_cv_rows).to_csv(os.path.join(OUT_DIR, "student_cv_results.csv"), index=False)
 
 with open(os.path.join(OUT_DIR, "best_baseline.json"), "w") as f:
     json.dump(best_baseline, f, indent=2)
 with open(os.path.join(OUT_DIR, "best_teacher.json"), "w") as f:
     json.dump(best_teacher, f, indent=2)
+with open(os.path.join(OUT_DIR, "best_student.json"), "w") as f:
+    json.dump(best_student, f, indent=2)
 
 vent_fill_values = fit_vent_imputer_train_only(df_train_raw)
 df_train = apply_vent_imputer(df_train_raw, vent_fill_values)
@@ -865,93 +1220,169 @@ Xi_test_raw = df_test[cxr_emb_cols].to_numpy(dtype=np.float32)
 y_train_raw = df_train[target_train].to_numpy(dtype=np.float32)
 y_test_raw = df_test[target_train].to_numpy(dtype=np.float32)
 y_v3 = df_v3_imp[target_val].to_numpy(dtype=np.float32)
+test_groups = df_test[detect_group_col(df_test)].astype(str).to_numpy() if detect_group_col(df_test) else np.arange(len(df_test)).astype(str)
+v3_groups = df_v3_imp[detect_group_col(df_v3_imp)].astype(str).to_numpy() if detect_group_col(df_v3_imp) else np.arange(len(df_v3_imp)).astype(str)
 
 vent_scaler, [Xv_train, Xv_test, Xv_v3_scaled] = scale_vent_train_only(Xv_train_raw, [Xv_test_raw, Xv_v3_raw])
-img_scaler, img_pca, [Xi_train, Xi_test] = fit_cxr_transform_train_only(Xi_train_raw, [Xi_test_raw], use_pca=USE_CXR_PCA, fit_dim=CXR_PCA_FIT_DIM, use_dim=CXR_PCA_USE_DIM)
 y_scaler, [y_train, y_test, y_v3_scaled] = scale_targets_train_only(y_train_raw, [y_test_raw, y_v3])
 
 joblib.dump(vent_fill_values, os.path.join(OUT_DIR, "vent_fill_values.joblib"))
 joblib.dump(vent_scaler, os.path.join(OUT_DIR, "vent_scaler.joblib"))
-joblib.dump(img_scaler, os.path.join(OUT_DIR, "img_scaler.joblib"))
-if img_pca is not None:
-    joblib.dump(img_pca, os.path.join(OUT_DIR, f"img_pca_fit{CXR_PCA_FIT_DIM}_use{CXR_PCA_USE_DIM}.joblib"))
 joblib.dump(y_scaler, os.path.join(OUT_DIR, "y_scaler.joblib"))
-
-inner_gss = GroupShuffleSplit(n_splits=1, test_size=0.15, random_state=SEED)
-inner_tr_idx, inner_va_idx = next(inner_gss.split(df_train, y_train_raw, groups=groups_train))
-
-Xv_tr, Xv_va = Xv_train[inner_tr_idx], Xv_train[inner_va_idx]
-Xi_tr, Xi_va = Xi_train[inner_tr_idx], Xi_train[inner_va_idx]
-y_tr, y_va = y_train[inner_tr_idx], y_train[inner_va_idx]
 
 results_rows = []
 predictions = {}
-run_metadata = {"encoder_tag": ENCODER_TAG, "use_cxr_pca": USE_CXR_PCA, "cxr_pca_fit_dim": CXR_PCA_FIT_DIM, "cxr_pca_use_dim": CXR_PCA_USE_DIM}
+ensemble_members = {}
+run_metadata = {
+    "encoder_tag": ENCODER_TAG,
+    "cxr_reducer_candidates": CXR_REDUCER_CANDIDATES,
+    "distillation_candidates": DISTILLATION_CANDIDATES,
+    "final_val_strategy": FINAL_VAL_STRATEGY,
+    "final_val_ratio": FINAL_VAL_RATIO,
+    "final_train_seeds": FINAL_TRAIN_SEEDS,
+    "single_family_predictions_are_seed_ensembles": True,
+    "ensemble_top_k": ENSEMBLE_TOP_K,
+}
+baseline_family_preds = {}
+teacher_family_preds = {}
+student_family_preds = {}
 
 for family in MODEL_FAMILIES:
-    cfg = best_baseline[family]["cfg"]
-    tr_loader = DataLoader(VentOnlyDataset(Xv_tr, y_tr), batch_size=BATCH_SIZE, shuffle=True)
-    va_loader = DataLoader(VentOnlyDataset(Xv_va, y_va), batch_size=BATCH_SIZE, shuffle=False)
-    model = build_baseline_model(family, VENT_DIM, cfg)
-    fit = train_baseline(model, tr_loader, va_loader, cfg)
-    model = fit.model
+    teacher_choice = best_teacher[family]
+    student_choice = best_student[family]
+    reducer_cfg = teacher_choice["reducer_cfg"]
+    img_scaler, img_reducer, [Xi_train, Xi_test] = fit_cxr_transform_train_only(Xi_train_raw, [Xi_test_raw], reducer_cfg=reducer_cfg)
+    joblib.dump(img_scaler, os.path.join(OUT_DIR, f"img_scaler_{family}.joblib"))
+    if img_reducer["name"] == "pca":
+        joblib.dump(img_reducer["model"], os.path.join(OUT_DIR, f"img_reducer_{family}_pca.joblib"))
+    else:
+        torch.save(img_reducer, os.path.join(OUT_DIR, f"img_reducer_{family}_{img_reducer['name']}.pt"))
 
-    pred_test_scaled = predict_baseline(model, Xv_test)
-    pred_test = y_scaler.inverse_transform(pred_test_scaled).ravel()
-    pred_v3_scaled = predict_baseline(model, Xv_v3_scaled)
-    pred_v3 = y_scaler.inverse_transform(pred_v3_scaled).ravel()
+    baseline_test_preds, baseline_v3_preds = [], []
+    teacher_test_preds, student_test_preds, student_v3_preds = [], [], []
 
-    test_m = regression_metrics(y_test_raw, pred_test)
-    v3_m = regression_metrics(y_v3, pred_v3)
-    results_rows.append({"experiment": "baseline", "family": family, "fusion": "vent_only", **{f"test_{k}": v for k, v in test_m.items()}, **{f"v3_{k}": v for k, v in v3_m.items()}})
-    predictions[f"baseline_{family}"] = {"test_true": y_test_raw.tolist(), "test_pred": pred_test.tolist(), "v3_true": y_v3.tolist(), "v3_pred": pred_v3.tolist()}
-    torch.save(model.state_dict(), os.path.join(OUT_DIR, f"baseline_{family}.pt"))
+    for run_seed in FINAL_TRAIN_SEEDS:
+        set_seed(run_seed)
+        if FINAL_VAL_STRATEGY == "holdout":
+            inner_tr_idx, inner_va_idx = get_inner_train_val_split(df=df_train, y=y_train_raw, groups=groups_train, val_ratio=FINAL_VAL_RATIO, seed=run_seed)
+            Xv_tr, Xv_va = Xv_train[inner_tr_idx], Xv_train[inner_va_idx]
+            Xi_tr, Xi_va = Xi_train[inner_tr_idx], Xi_train[inner_va_idx]
+            y_tr, y_va = y_train[inner_tr_idx], y_train[inner_va_idx]
+            baseline_va_loader = DataLoader(VentOnlyDataset(Xv_va, y_va), batch_size=BATCH_SIZE, shuffle=False)
+            multi_va_loader = DataLoader(MultiDataset(Xv_va, Xi_va, y_va), batch_size=BATCH_SIZE, shuffle=False)
+        else:
+            Xv_tr, Xi_tr, y_tr = Xv_train, Xi_train, y_train
+            baseline_va_loader = None
+            multi_va_loader = None
 
-teacher_models = {}
-for family in MODEL_FAMILIES:
-    cfg = best_teacher[family]["cfg"]
-    fusion = best_teacher[family]["fusion"]
-    tr_loader = DataLoader(MultiDataset(Xv_tr, Xi_tr, y_tr), batch_size=BATCH_SIZE, shuffle=True)
-    va_loader = DataLoader(MultiDataset(Xv_va, Xi_va, y_va), batch_size=BATCH_SIZE, shuffle=False)
-    model = build_teacher_model(family, fusion, VENT_DIM, Xi_tr.shape[1], cfg)
-    fit = train_teacher(model, tr_loader, va_loader, cfg)
-    model = fit.model
-    teacher_models[family] = model
+        baseline_tr_loader = DataLoader(VentOnlyDataset(Xv_tr, y_tr), batch_size=BATCH_SIZE, shuffle=True)
+        multi_tr_loader = DataLoader(MultiDataset(Xv_tr, Xi_tr, y_tr), batch_size=BATCH_SIZE, shuffle=True)
 
-    pred_test_scaled = predict_teacher(model, Xv_test, Xi_test)
-    pred_test = y_scaler.inverse_transform(pred_test_scaled).ravel()
-    test_m = regression_metrics(y_test_raw, pred_test)
-    results_rows.append({"experiment": "teacher", "family": family, "fusion": fusion, **{f"test_{k}": v for k, v in test_m.items()}})
-    predictions[f"teacher_{family}_{fusion}"] = {"test_true": y_test_raw.tolist(), "test_pred": pred_test.tolist()}
-    torch.save(model.state_dict(), os.path.join(OUT_DIR, f"teacher_{family}_{fusion}.pt"))
+        baseline_cfg = best_baseline[family]["cfg"]
+        teacher_cfg = teacher_choice["cfg"]
+        teacher_fusion = teacher_choice["fusion"]
+        student_cfg = {**student_choice["cfg"], **student_choice["distill_cfg"]}
 
-for family in MODEL_FAMILIES:
-    teacher = teacher_models[family]
-    cfg = best_teacher[family]["cfg"]
-    tr_loader = DataLoader(MultiDataset(Xv_tr, Xi_tr, y_tr), batch_size=BATCH_SIZE, shuffle=True)
-    va_loader = DataLoader(MultiDataset(Xv_va, Xi_va, y_va), batch_size=BATCH_SIZE, shuffle=False)
-    student = build_baseline_model(family, VENT_DIM, cfg)
-    fit = train_student(student, teacher, tr_loader, va_loader, cfg)
-    student = fit.model
+        baseline_model = train_baseline(build_baseline_model(family, VENT_DIM, baseline_cfg), baseline_tr_loader, baseline_va_loader, baseline_cfg).model
+        teacher_model = train_teacher(build_teacher_model(family, teacher_fusion, VENT_DIM, Xi_train.shape[1], teacher_cfg), multi_tr_loader, multi_va_loader, teacher_cfg).model
+        student_model = train_student(build_baseline_model(family, VENT_DIM, student_choice["cfg"]), teacher_model, multi_tr_loader, multi_va_loader, student_cfg).model
 
-    pred_test_scaled = predict_baseline(student, Xv_test)
-    pred_test = y_scaler.inverse_transform(pred_test_scaled).ravel()
-    pred_v3_scaled = predict_baseline(student, Xv_v3_scaled)
-    pred_v3 = y_scaler.inverse_transform(pred_v3_scaled).ravel()
+        baseline_test_preds.append(y_scaler.inverse_transform(predict_baseline(baseline_model, Xv_test)).ravel())
+        baseline_v3_preds.append(y_scaler.inverse_transform(predict_baseline(baseline_model, Xv_v3_scaled)).ravel())
+        teacher_test_preds.append(y_scaler.inverse_transform(predict_teacher(teacher_model, Xv_test, Xi_test)).ravel())
+        student_test_preds.append(y_scaler.inverse_transform(predict_baseline(student_model, Xv_test)).ravel())
+        student_v3_preds.append(y_scaler.inverse_transform(predict_baseline(student_model, Xv_v3_scaled)).ravel())
 
-    test_m = regression_metrics(y_test_raw, pred_test)
-    v3_m = regression_metrics(y_v3, pred_v3)
-    results_rows.append({"experiment": "student", "family": family, "fusion": "vent_only_distilled", **{f"test_{k}": v for k, v in test_m.items()}, **{f"v3_{k}": v for k, v in v3_m.items()}})
-    predictions[f"student_{family}"] = {"test_true": y_test_raw.tolist(), "test_pred": pred_test.tolist(), "v3_true": y_v3.tolist(), "v3_pred": pred_v3.tolist()}
-    torch.save(student.state_dict(), os.path.join(OUT_DIR, f"student_{family}.pt"))
+    baseline_test = mean_stack(baseline_test_preds)
+    baseline_v3 = mean_stack(baseline_v3_preds)
+    teacher_test = mean_stack(teacher_test_preds)
+    student_test = mean_stack(student_test_preds)
+    student_v3 = mean_stack(student_v3_preds)
+    baseline_family_preds[family] = {"test": baseline_test, "v3": baseline_v3}
+    teacher_family_preds[family] = {"test": teacher_test}
+    student_family_preds[family] = {"test": student_test, "v3": student_v3}
+
+    test_m = regression_metrics(y_test_raw, baseline_test)
+    v3_m = regression_metrics(y_v3, baseline_v3)
+    results_rows.append({"experiment": "baseline", "family": family, "fusion": "vent_only", "ensemble_type": "seed", "train_seeds": len(FINAL_TRAIN_SEEDS), **{f"test_{k}": v for k, v in test_m.items()}, **{f"v3_{k}": v for k, v in v3_m.items()}})
+    predictions[f"baseline_{family}"] = {"test_true": y_test_raw.tolist(), "test_pred": baseline_test.tolist(), "v3_true": y_v3.tolist(), "v3_pred": baseline_v3.tolist()}
+
+    test_m = regression_metrics(y_test_raw, teacher_test)
+    results_rows.append({"experiment": "teacher", "family": family, "fusion": teacher_choice["fusion"], "ensemble_type": "seed", "cxr_reducer": reducer_cfg["name"], "cxr_latent_dim": reducer_cfg.get("latent_dim"), "train_seeds": len(FINAL_TRAIN_SEEDS), **{f"test_{k}": v for k, v in test_m.items()}})
+    predictions[f"teacher_{family}_{teacher_choice['fusion']}"] = {"test_true": y_test_raw.tolist(), "test_pred": teacher_test.tolist()}
+
+    test_m = regression_metrics(y_test_raw, student_test)
+    v3_m = regression_metrics(y_v3, student_v3)
+    results_rows.append({"experiment": "student", "family": family, "fusion": "vent_only_distilled", "ensemble_type": "seed", "teacher_fusion": teacher_choice["fusion"], "cxr_reducer": reducer_cfg["name"], "cxr_latent_dim": reducer_cfg.get("latent_dim"), "alpha": student_choice["distill_cfg"]["alpha"], "beta": student_choice["distill_cfg"]["beta"], "train_seeds": len(FINAL_TRAIN_SEEDS), **{f"test_{k}": v for k, v in test_m.items()}, **{f"v3_{k}": v for k, v in v3_m.items()}})
+    predictions[f"student_{family}"] = {"test_true": y_test_raw.tolist(), "test_pred": student_test.tolist(), "v3_true": y_v3.tolist(), "v3_pred": student_v3.tolist()}
+
+baseline_top_families = sorted(MODEL_FAMILIES, key=lambda fam: best_baseline[fam]["cv_rmse"])[:ENSEMBLE_TOP_K]
+baseline_test_ensemble = mean_stack([baseline_family_preds[fam]["test"] for fam in baseline_top_families])
+baseline_v3_ensemble = mean_stack([baseline_family_preds[fam]["v3"] for fam in baseline_top_families])
+results_rows.append({"experiment": "baseline_ensemble", "family": "+".join(baseline_top_families), "fusion": "vent_only", "ensemble_type": "family", "ensemble_size": len(baseline_top_families), "train_seeds": len(FINAL_TRAIN_SEEDS), **{f"test_{k}": v for k, v in regression_metrics(y_test_raw, baseline_test_ensemble).items()}, **{f"v3_{k}": v for k, v in regression_metrics(y_v3, baseline_v3_ensemble).items()}})
+predictions["baseline_family_ensemble"] = {"members": baseline_top_families, "test_true": y_test_raw.tolist(), "test_pred": baseline_test_ensemble.tolist(), "v3_true": y_v3.tolist(), "v3_pred": baseline_v3_ensemble.tolist()}
+ensemble_members["baseline_family_ensemble"] = baseline_top_families
+
+teacher_top_families = sorted(MODEL_FAMILIES, key=lambda fam: best_teacher[fam]["cv_rmse"])[:ENSEMBLE_TOP_K]
+teacher_test_ensemble = mean_stack([teacher_family_preds[fam]["test"] for fam in teacher_top_families])
+results_rows.append({"experiment": "teacher_ensemble", "family": "+".join(teacher_top_families), "fusion": "multimodal", "ensemble_type": "family", "ensemble_size": len(teacher_top_families), "train_seeds": len(FINAL_TRAIN_SEEDS), **{f"test_{k}": v for k, v in regression_metrics(y_test_raw, teacher_test_ensemble).items()}})
+predictions["teacher_family_ensemble"] = {"members": teacher_top_families, "test_true": y_test_raw.tolist(), "test_pred": teacher_test_ensemble.tolist()}
+ensemble_members["teacher_family_ensemble"] = teacher_top_families
+
+student_top_families = sorted(MODEL_FAMILIES, key=lambda fam: best_student[fam]["cv_rmse"])[:ENSEMBLE_TOP_K]
+student_test_ensemble = mean_stack([student_family_preds[fam]["test"] for fam in student_top_families])
+student_v3_ensemble = mean_stack([student_family_preds[fam]["v3"] for fam in student_top_families])
+results_rows.append({"experiment": "student_ensemble", "family": "+".join(student_top_families), "fusion": "vent_only_distilled", "ensemble_type": "family", "ensemble_size": len(student_top_families), "train_seeds": len(FINAL_TRAIN_SEEDS), **{f"test_{k}": v for k, v in regression_metrics(y_test_raw, student_test_ensemble).items()}, **{f"v3_{k}": v for k, v in regression_metrics(y_v3, student_v3_ensemble).items()}})
+predictions["student_family_ensemble"] = {"members": student_top_families, "test_true": y_test_raw.tolist(), "test_pred": student_test_ensemble.tolist(), "v3_true": y_v3.tolist(), "v3_pred": student_v3_ensemble.tolist()}
+ensemble_members["student_family_ensemble"] = student_top_families
 
 results_df = pd.DataFrame(results_rows)
 results_df.to_csv(os.path.join(OUT_DIR, "all_results_summary.csv"), index=False)
 
 with open(os.path.join(OUT_DIR, "all_predictions.json"), "w") as f:
     json.dump(predictions, f)
+with open(os.path.join(OUT_DIR, "ensemble_members.json"), "w") as f:
+    json.dump(ensemble_members, f, indent=2)
 with open(os.path.join(OUT_DIR, "run_metadata.json"), "w") as f:
     json.dump(run_metadata, f, indent=2)
+
+posthoc_dir = os.path.join(OUT_DIR, "posthoc_analysis")
+os.makedirs(posthoc_dir, exist_ok=True)
+for key, payload in predictions.items():
+    if "test_pred" in payload:
+        save_regression_posthoc(f"{key}_test", np.asarray(payload["test_true"]), np.asarray(payload["test_pred"]), test_groups, posthoc_dir)
+    if "v3_pred" in payload:
+        save_regression_posthoc(f"{key}_v3", np.asarray(payload["v3_true"]), np.asarray(payload["v3_pred"]), v3_groups, posthoc_dir)
+
+if RUN_LEARNING_CURVES:
+    learning_rows = []
+    learning_specs = [
+        ("baseline", min(best_baseline, key=lambda fam: best_baseline[fam]["cv_rmse"])),
+        ("teacher", min(best_teacher, key=lambda fam: best_teacher[fam]["cv_rmse"])),
+        ("student", min(best_student, key=lambda fam: best_student[fam]["cv_rmse"])),
+    ]
+    for experiment_type, family in learning_specs:
+        reducer_cfg = best_teacher[family]["reducer_cfg"] if experiment_type in {"teacher", "student"} else None
+        distill_cfg = best_student[family]["distill_cfg"] if experiment_type == "student" else None
+        for frac in LEARNING_FRACTIONS:
+            for learn_seed in LEARNING_SEEDS:
+                test_pred, v3_pred = train_eval_single_run_regression(experiment_type, family, learn_seed, reducer_cfg=reducer_cfg, distill_cfg=distill_cfg, fraction=frac)
+                row = {"experiment": experiment_type, "family": family, "train_fraction": frac, "seed": learn_seed, **{f"test_{k}": v for k, v in regression_metrics(y_test_raw, test_pred).items()}}
+                if v3_pred is not None:
+                    row.update({f"v3_{k}": v for k, v in regression_metrics(y_v3, v3_pred).items()})
+                learning_rows.append(row)
+    pd.DataFrame(learning_rows).to_csv(os.path.join(OUT_DIR, "learning_curve_results.csv"), index=False)
+
+if RUN_CXR_REDUCER_SENSITIVITY:
+    sensitivity_rows = []
+    teacher_family = min(best_teacher, key=lambda fam: best_teacher[fam]["cv_rmse"])
+    student_family = min(best_student, key=lambda fam: best_student[fam]["cv_rmse"])
+    for reducer_cfg in CXR_REDUCER_SENSITIVITY_CANDIDATES:
+        test_pred, _ = train_eval_single_run_regression("teacher", teacher_family, SEED, reducer_cfg=reducer_cfg, fraction=1.0)
+        sensitivity_rows.append({"experiment": "teacher", "family": teacher_family, "reducer": reducer_cfg["name"], "latent_dim": reducer_cfg.get("latent_dim"), **{f"test_{k}": v for k, v in regression_metrics(y_test_raw, test_pred).items()}})
+        test_pred, v3_pred = train_eval_single_run_regression("student", student_family, SEED, reducer_cfg=reducer_cfg, distill_cfg=best_student[student_family]["distill_cfg"], fraction=1.0)
+        sensitivity_rows.append({"experiment": "student", "family": student_family, "reducer": reducer_cfg["name"], "latent_dim": reducer_cfg.get("latent_dim"), **{f"test_{k}": v for k, v in regression_metrics(y_test_raw, test_pred).items()}, **({f"v3_{k}": v for k, v in regression_metrics(y_v3, v3_pred).items()} if v3_pred is not None else {})})
+    pd.DataFrame(sensitivity_rows).to_csv(os.path.join(OUT_DIR, "cxr_reducer_sensitivity.csv"), index=False)
 
 print("\n================ FINAL SUMMARY ================")
 print(results_df)
